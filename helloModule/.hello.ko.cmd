@@ -1,0 +1,1 @@
+cmd_/home/rooknox/kernelModules/helloModule/hello.ko := ld -r -m elf_x86_64 -z max-page-size=0x200000 -T ./scripts/module-common.lds --build-id  -o /home/rooknox/kernelModules/helloModule/hello.ko /home/rooknox/kernelModules/helloModule/hello.o /home/rooknox/kernelModules/helloModule/hello.mod.o ;  true

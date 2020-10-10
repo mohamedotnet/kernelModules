@@ -1,0 +1,1 @@
+cmd_/home/rooknox/kernelModules/ramDiskModule/ramdisk.ko := ld -r -m elf_x86_64 -z max-page-size=0x200000 -T ./scripts/module-common.lds --build-id  -o /home/rooknox/kernelModules/ramDiskModule/ramdisk.ko /home/rooknox/kernelModules/ramDiskModule/ramdisk.o /home/rooknox/kernelModules/ramDiskModule/ramdisk.mod.o ;  true
