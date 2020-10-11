@@ -6,6 +6,7 @@
 #include <linux/blkdev.h>
 #include <linux/init.h>
 #include <linux/types.h>
+#include <linux/ioctl.h>
 
 MODULE_LICENSE("Dual BSD/GPL");
 
@@ -14,6 +15,10 @@ static int ramdisk_major = 0;
 static int nsectors = 10;
 //module_param(nsectors, int, 0);
 
+#define RAM_DISK_MAGIC 's'
+
+#define RAM_DISK_ENCRPT _IOW(RAM_DISK_MAGIC, 1, int)
+#define RAM_DISK_DECRPT _IOR(RAM_DISK_MAGIC, 2, int)
 
 #define SECTOR_SIZE                  512
 #define BBLOCK_MINORS                  1
@@ -21,6 +26,8 @@ static int nsectors = 10;
 
 static int _dev_open(struct block_device *bdev, fmode_t mode);
 static void _dev_release(struct gendisk * gdisk, fmode_t mode);
+static int dev_ioctl(struct block_device *bdev, fmode_t mode,
+                  unsigned int cmd, unsigned long arg);
 
 struct ramdisk_dev{
     unsigned int size;
@@ -30,13 +37,20 @@ struct ramdisk_dev{
     struct gendisk *rb_disk;
 }_dev;
 
+typedef struct{
+  char* passwd;
+  int len;
+}password_t;
+
 static struct block_device_operations dev_fops = {
     .owner = THIS_MODULE,
     .open = _dev_open,
     .release = _dev_release,
+    .ioctl = dev_ioctl,
 };
 
-static int _dev_open(struct block_device *bdev, fmode_t mode){
+static int _dev_open(struct block_device *bdev, fmode_t mode)
+{
     unsigned unit = iminor(bdev->bd_inode);
 
     printk(KERN_INFO "Ramdisk: Device is opened\n");
@@ -47,16 +61,69 @@ static int _dev_open(struct block_device *bdev, fmode_t mode){
     return 0;
 }
 
-static void _dev_release(struct gendisk * gdisk, fmode_t mode){
-	printk(KERN_INFO "Ramdisk: Device is closed\n");
+static void _dev_release(struct gendisk * gdisk, fmode_t mode)
+{
+	 printk(KERN_INFO "Ramdisk: Device is closed\n");
+}
+
+int dev_ioctl(struct block_device *bdev, fmode_t mode,
+          unsigned cmd, unsigned long arg)
+{
+  printk(KERN_INFO "Handling ioctl...\n");
+   password_t pass;
+   int err, i;
+
+   u8* buffer = vmalloc(nsectors*SECTOR_SIZE);
+   memcpy(buffer, _dev.data, nsectors*SECTOR_SIZE);
+   /*
+    * Verify that the command type is the same defined above, i.e; MAGIC NR
+    */
+   if (_IOC_TYPE(cmd) != RAM_DISK_MAGIC) return -ENOTTY;
+
+   /*
+    * TODO: Verify that we're accessing a valid userspace address
+    */
+
+   switch (cmd) {
+     /*
+      * Encrypting data in the block using XOR
+      */
+     case RAM_DISK_ENCRPT:
+        if (copy_from_user(&pass, (password_t *)arg, sizeof(password_t)))
+          return -EACCES;
+
+        for (i = 0; i < nsectors*SECTOR_SIZE; i++){
+          buffer[i] ^= pass.passwd[i%pass.len];
+        }
+        memcpy(_dev.data, buffer, nsectors*SECTOR_SIZE);
+
+     /*
+      * Decrypting data in the block using XOR
+      */
+     case RAM_DISK_DECRPT:
+        if (copy_from_user(&pass, (password_t *)arg, sizeof(password_t)))
+          return -EACCES;
+        for (i = 0; i < nsectors*SECTOR_SIZE; i++){
+          buffer[i] ^= pass.passwd[i%pass.len];
+        }
+        memcpy(_dev.data, buffer, nsectors*SECTOR_SIZE);
+
+    /*
+     * Error
+     */
+     default:
+        return -ENOTTY;
+   }
+   return 0;
 }
 //static struct ramdisk_dev *dev = NULL;
 
 
 /*
-    transfering function
-*/
-static void ramdisk_transfer(struct request *req){
+ * transfering function
+ */
+static void ramdisk_transfer(struct request *req)
+{
     int dir = rq_data_dir(req);
     int sector = blk_rq_pos(req);
     int nsectors = blk_rq_sectors(req);
@@ -89,9 +156,10 @@ static void ramdisk_transfer(struct request *req){
 
 
 /*
-    request handling function
-*/
-static void ramdisk_request(struct request_queue *q){
+ * Request handling function
+ */
+static void ramdisk_request(struct request_queue *q)
+{
     struct request *req;
     int nsect = 0;
 
@@ -104,9 +172,10 @@ static void ramdisk_request(struct request_queue *q){
 
 
 /*
-    setup our ramdisk device
-*/
-static void setup_ramdisk_device(void){
+ * Setup our ramdisk device
+ */
+static void setup_ramdisk_device(void)
+{
     printk(KERN_NOTICE "Setting Up The Device\n");
 
     memset(&_dev, 0, sizeof(struct ramdisk_dev));
@@ -151,8 +220,6 @@ static void setup_ramdisk_device(void){
 
     //add disk
     printk(KERN_INFO "Adding disk...\n");
-    //device_add_disk(NULL, _dev.rb_disk);
-
     add_disk(_dev.rb_disk);
     //log: the device is created
     printk(KERN_INFO "ramdisk: device %s is created\n",
@@ -168,9 +235,10 @@ err_out:
 
 
 /*
-    init module
-*/
-static int ramdisk_driver_init(void){
+ * init module
+ */
+static int ramdisk_driver_init(void)
+{
     //register ramdisk driver
     ramdisk_major = register_blkdev(0, "ramdisk");
     if (ramdisk_major <= 0){
@@ -185,9 +253,10 @@ static int ramdisk_driver_init(void){
 }
 
 /*
-    module exit
-*/
-static void ramdisk_driver_exit(void){
+ * module exit
+ */
+static void ramdisk_driver_exit(void)
+{
     if (_dev.rb_disk){
       del_gendisk(_dev.rb_disk);
       put_disk(_dev.rb_disk);
